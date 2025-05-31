@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../models/movie.dart';
-import '../services/movie_service.dart';
-import '../utils/constants.dart';
+import '../Models/movie.dart';
+import '../Services/movie_service.dart';
+import '../Utils/constants.dart';
 
 class MovieDetailScreen extends StatefulWidget {
   final int movieId;
