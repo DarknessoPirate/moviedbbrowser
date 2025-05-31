@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/movie_response.dart';
-import '../models/movie.dart';
-import '../utils/constants.dart';
+import '../Models/movie_response.dart';
+import '../Models/movie.dart';
+import '../Utils/constants.dart';
 
 class MovieService {
   Future<MovieResponse> getTopRatedMovies({int page = 1}) async {

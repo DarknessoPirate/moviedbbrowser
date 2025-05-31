@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import '../models/movie.dart';
-import '../services/movie_service.dart';
-import '../utils/constants.dart';
+import '../Services/favourites_service.dart';
+import '../Models/movie.dart';
+import '../Services/movie_service.dart';
+import '../Utils/constants.dart';
 
 class MovieDetailScreen extends StatefulWidget {
   final int movieId;
@@ -14,12 +15,64 @@ class MovieDetailScreen extends StatefulWidget {
 
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
   final MovieService _movieService = MovieService();
+  final FavoriteService _favoriteService = FavoriteService.instance;
   late Future<Movie> _movieFuture;
+  bool _isFavorite = false;
+  bool _isFavoriteLoading = false;
 
   @override
   void initState() {
     super.initState();
     _movieFuture = _movieService.getMovieDetails(widget.movieId);
+    _checkFavoriteStatus();
+  }
+
+  Future<void> _checkFavoriteStatus() async {
+    final isFav = await _favoriteService.isFavorite(widget.movieId);
+    if (mounted) {
+      setState(() {
+        _isFavorite = isFav;
+      });
+    }
+  }
+
+  Future<void> _toggleFavorite(Movie movie) async {
+    if (_isFavoriteLoading) return;
+
+    setState(() {
+      _isFavoriteLoading = true;
+    });
+
+    final success = await _favoriteService.toggleFavorite(movie);
+    
+    if (mounted) {
+      setState(() {
+        _isFavoriteLoading = false;
+        if (success) {
+          _isFavorite = !_isFavorite;
+        }
+      });
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _isFavorite 
+                ? 'Dodano do ulubionych' 
+                : 'Usunięto z ulubionych'
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Wystąpił błąd podczas zapisywania'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -75,6 +128,37 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               SliverAppBar(
                 expandedHeight: 250,
                 pinned: true,
+                actions: [
+                  // Favorite button in app bar
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: _isFavoriteLoading
+                        ? const Padding(
+                            padding: EdgeInsets.all(12.0),
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            ),
+                          )
+                        : IconButton(
+                            icon: Icon(
+                              _isFavorite 
+                                  ? Icons.favorite 
+                                  : Icons.favorite_border,
+                              color: _isFavorite 
+                                  ? Colors.red 
+                                  : Colors.white,
+                            ),
+                            onPressed: () => _toggleFavorite(movie),
+                          ),
+                  ),
+                ],
                 flexibleSpace: FlexibleSpaceBar(
                   titlePadding: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -102,16 +186,15 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  background:
-                      movie.backdropPath.isNotEmpty
-                          ? Image.network(
-                            '${Constants.backdropBaseUrl}${movie.backdropPath}',
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(color: Colors.grey[800]);
-                            },
-                          )
-                          : Container(color: Colors.grey[800]),
+                  background: movie.backdropPath.isNotEmpty
+                      ? Image.network(
+                          '${Constants.backdropBaseUrl}${movie.backdropPath}',
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(color: Colors.grey[800]);
+                          },
+                        )
+                      : Container(color: Colors.grey[800]),
                 ),
               ),
               SliverToBoxAdapter(
@@ -126,36 +209,35 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                           // Poster image
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8.0),
-                            child:
-                                movie.posterPath.isNotEmpty
-                                    ? Image.network(
-                                      '${Constants.imageBaseUrl}${movie.posterPath}',
-                                      height: 180,
-                                      width: 120,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (
-                                        context,
-                                        error,
-                                        stackTrace,
-                                      ) {
-                                        return Container(
-                                          height: 180,
-                                          width: 120,
-                                          color: Colors.grey[300],
-                                          child: const Center(
-                                            child: Text('No image'),
-                                          ),
-                                        );
-                                      },
-                                    )
-                                    : Container(
-                                      height: 180,
-                                      width: 120,
-                                      color: Colors.grey[300],
-                                      child: const Center(
-                                        child: Text('No image'),
-                                      ),
+                            child: movie.posterPath.isNotEmpty
+                                ? Image.network(
+                                    '${Constants.imageBaseUrl}${movie.posterPath}',
+                                    height: 180,
+                                    width: 120,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (
+                                      context,
+                                      error,
+                                      stackTrace,
+                                    ) {
+                                      return Container(
+                                        height: 180,
+                                        width: 120,
+                                        color: Colors.grey[300],
+                                        child: const Center(
+                                          child: Text('No image'),
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : Container(
+                                    height: 180,
+                                    width: 120,
+                                    color: Colors.grey[300],
+                                    child: const Center(
+                                      child: Text('No image'),
                                     ),
+                                  ),
                           ),
                           const SizedBox(width: 16),
                           // Movie info
@@ -193,7 +275,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                   style: TextStyle(color: Colors.grey[700]),
                                 ),
                                 const SizedBox(height: 8),
-                                // Replace it with this:
                                 RichText(
                                   text: TextSpan(
                                     style: TextStyle(color: Colors.grey[700]),
@@ -214,6 +295,42 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                         ),
                                       ),
                                     ],
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                // Favorite button below info
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: _isFavoriteLoading 
+                                        ? null 
+                                        : () => _toggleFavorite(movie),
+                                    icon: _isFavoriteLoading
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : Icon(
+                                            _isFavorite 
+                                                ? Icons.favorite 
+                                                : Icons.favorite_border,
+                                          ),
+                                    label: Text(
+                                      _isFavorite 
+                                          ? 'Usuń z ulubionych' 
+                                          : 'Dodaj do ulubionych'
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _isFavorite 
+                                          ? Colors.red.shade100 
+                                          : null,
+                                      foregroundColor: _isFavorite 
+                                          ? Colors.red.shade700 
+                                          : null,
+                                    ),
                                   ),
                                 ),
                               ],
