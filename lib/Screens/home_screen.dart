@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '../Services/favourites_service.dart';
 import '../Models/movie.dart';
 import '../Services/movie_service.dart';
+import '../Services/favourites_service.dart';
 import '../Widgets/movie_card.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -21,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<Movie> _movies = [];
   List<Movie> _searchResults = [];
   List<Movie> _favoriteMovies = [];
+  List<Movie> _filteredFavoriteMovies = [];
   
   int _currentPage = 1;
   bool _isLoading = false;
@@ -32,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _filteredFavoriteMovies = []; // Inicjalizuj pustą listę
     _loadMovies();
     _loadFavoriteMovies();
 
@@ -47,9 +49,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     _tabController.addListener(() {
       if (_tabController.index == 1) {
-        // When switching to favorites tab, reload favorites
+        // When switching to favorites tab, reload favorites and filter them
         _loadFavoriteMovies();
       }
+      // Zaktualizuj hint w polu wyszukiwania
+      setState(() {});
     });
   }
 
@@ -90,6 +94,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final favorites = await _favoriteService.getFavoriteMovies();
       setState(() {
         _favoriteMovies = favorites;
+        _filterFavoriteMovies(); // Filtruj po załadowaniu
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -99,6 +104,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _loadMoreMovies() async {
+    // Pagination tylko dla zakładki "Wszystkie" i tylko gdy wyszukujemy przez API
+    if (_tabController.index != 0) return;
+    
     if (_isSearching) {
       await _searchMoreMovies();
       return;
@@ -130,14 +138,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _searchMovies(String query) async {
+    // Jeśli puste zapytanie, wyczyść wyszukiwanie
     if (query.isEmpty) {
       setState(() {
         _isSearching = false;
         _searchResults = [];
       });
+      _filterFavoriteMovies(); // Odfiltruj ulubione
       return;
     }
 
+    // Jeśli jesteśmy w zakładce ulubionych, filtruj lokalnie
+    if (_tabController.index == 1) {
+      _filterFavoriteMovies();
+      return;
+    }
+
+    // Wyszukuj filmy przez API (tylko dla zakładki "Wszystkie")
     setState(() {
       _isLoading = true;
       _isSearching = true;
@@ -164,7 +181,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  void _filterFavoriteMovies() {
+    final query = _searchController.text.toLowerCase();
+    
+    if (query.isEmpty) {
+      setState(() {
+        _filteredFavoriteMovies = List.from(_favoriteMovies);
+      });
+    } else {
+      setState(() {
+        _filteredFavoriteMovies = _favoriteMovies.where((movie) {
+          return movie.title.toLowerCase().contains(query) ||
+                 movie.originalTitle.toLowerCase().contains(query) ||
+                 movie.overview.toLowerCase().contains(query);
+        }).toList();
+      });
+    }
+  }
+
   Future<void> _searchMoreMovies() async {
+    // Search more tylko dla zakładki "Wszystkie"
+    if (_tabController.index != 0) return;
+    
     setState(() {
       _isLoading = true;
       _currentPage++;
@@ -196,7 +234,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _loadFavoriteMovies();
   }
 
-  Widget _buildMovieGrid(List<Movie> movies) {
+  Widget _buildMovieGrid(List<Movie> movies, {bool showPagination = false}) {
     if (_isLoading && movies.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -204,7 +242,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (movies.isEmpty) {
       String message = 'Brak filmów';
       if (_tabController.index == 1) {
-        message = 'Brak ulubionych filmów';
+        message = _searchController.text.isNotEmpty 
+            ? 'Brak ulubionych filmów pasujących do wyszukiwania'
+            : 'Brak ulubionych filmów';
       } else if (_isSearching) {
         message = 'Nie znaleziono filmów';
       }
@@ -224,7 +264,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         mainAxisSpacing: 12,
       ),
       itemCount: movies.length + 
-          ((_hasMorePages && _tabController.index == 0) ? 1 : 0),
+          ((showPagination && _hasMorePages) ? 1 : 0),
       itemBuilder: (context, index) {
         if (index >= movies.length) {
           return const Center(child: CircularProgressIndicator());
@@ -259,37 +299,33 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
       body: Column(
         children: [
-          // Search bar - only visible on "Wszystkie" tab
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            height: _tabController.index == 0 ? 80 : 0,
-            child: _tabController.index == 0
-                ? Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: 'Szukaj filmów...',
-                        prefixIcon: const Icon(Icons.search),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        suffixIcon: _searchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  _searchMovies('');
-                                },
-                              )
-                            : null,
-                      ),
-                      onChanged: (value) {
-                        _searchMovies(value);
-                      },
-                    ),
-                  )
-                : Container(),
+          // Search bar - zawsze widoczny
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: _tabController.index == 0 
+                    ? 'Szukaj filmów...' 
+                    : 'Szukaj w ulubionych...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          _searchMovies('');
+                        },
+                      )
+                    : null,
+              ),
+              onChanged: (value) {
+                _searchMovies(value);
+              },
+            ),
           ),
           
           // Content
@@ -298,10 +334,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               controller: _tabController,
               children: [
                 // Wszystkie filmy
-                _buildMovieGrid(_isSearching ? _searchResults : _movies),
+                _buildMovieGrid(
+                  _isSearching ? _searchResults : _movies,
+                  showPagination: true,
+                ),
                 
                 // Ulubione filmy
-                _buildMovieGrid(_favoriteMovies),
+                _buildMovieGrid(
+                  _filteredFavoriteMovies,
+                  showPagination: false,
+                ),
               ],
             ),
           ),
